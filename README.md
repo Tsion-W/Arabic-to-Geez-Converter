@@ -15,9 +15,16 @@ A Python tool for converting Arabic numerals and text into Geez script. Supports
 ## Tech Stack
 - Python  
 - Regex / String manipulation  
-- Optional PDF libraries for document integration
+- Optional PDF libraries
+
+## Screenshot / Demo
+![Converter Preview](screenshots/converter_preview.png)  
 
 ## Usage
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/Arabic-to-Geez-Converter.git
+```bash
+# Clone the repository
+git clone https://github.com/Tsion-W/Arabic-to-Geez-Converter.git
+# Install dependencies
+pip install -r requirements.txt
+# Run the converter
+python converter.py --input input_file.pdf --output output_file.pdf
