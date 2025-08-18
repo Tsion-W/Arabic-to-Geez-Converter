@@ -1,20 +1,25 @@
 import os
 import re
+import time
+import gc
 import fitz  # PyMuPDF
+from flask import Flask, render_template, request, send_file, flash, redirect
+from werkzeug.utils import secure_filename
 import tempfile
-from flask import Flask, render_template, request, send_file, redirect, url_for
-
-# ----------------- Flask Setup -----------------
-app = Flask(__name__)
 
 # ----------------- Paths -----------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, '../templates')
-STATIC_DIR = os.path.join(BASE_DIR, '../static')
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
 FONT_PATH = os.path.join(STATIC_DIR, 'Tayitu.ttf')
 
 if not os.path.isfile(FONT_PATH):
     raise FileNotFoundError(f"Tayitu font not found at {FONT_PATH}")
+
+# ----------------- Flask App -----------------
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
+app.secret_key = "supersecretkey"  # for flash messages
+UPLOAD_EXTENSIONS = ['.pdf']
 
 # ----------------- Geez Conversion -----------------
 def arabic_to_geez_full(n):
@@ -38,67 +43,80 @@ def arabic_to_geez_full(n):
         return ones[h] + hundred + tens[t] + ones[o]
 
 # ----------------- PDF Processing -----------------
-def add_geez_page_numbers(input_pdf_path, output_pdf_path):
-    doc = fitz.open(input_pdf_path)
+def add_geez_page_numbers(input_path, output_path):
+    doc = fitz.open(input_path)
+    font_name = "Tayitu"
+    font_size = 12
 
     for i, page in enumerate(doc):
         page_number = i + 1
         width, height = page.rect.width, page.rect.height
-        font_size = 12
-        y = height - 35  # bottom of page
+        y = height - 35
+        geez_number = arabic_to_geez_full(page_number)
 
-        # Remove existing Arabic numbers at bottom left/right
+        # Remove existing Arabic page numbers
         try:
             blocks = page.get_text("blocks")
             for b in blocks:
                 x0, y0, x1, y1, text, *_ = b
-                clean_text = text.strip()
-                if re.fullmatch(r"\d{1,3}", clean_text):
+                if re.fullmatch(r"\d{1,3}", text.strip()):
                     if y0 > height - 100 and (x0 < 100 or x1 > width - 100):
                         page.add_redact_annot(fitz.Rect(x0, y0, x1, y1), fill=(1,1,1))
             page.apply_redactions()
-        except Exception as e:
-            print(f"Redaction error on page {page_number}: {e}")
+        except Exception:
+            pass
 
-        # Insert Geez page number
-        geez_number = arabic_to_geez_full(page_number)
-        x = width - 60 if page_number % 2 != 0 else 40  # odd -> bottom right, even -> bottom left
+        # Insert Geez number
+        x = width - 60 if page_number % 2 != 0 else 40
         page.insert_text(
             fitz.Point(x, y),
             geez_number,
-            fontname="Tayitu",
+            fontname=font_name,
             fontfile=FONT_PATH,
             fontsize=font_size,
             color=(0,0,0)
         )
 
-    doc.save(output_pdf_path)
+    doc.save(output_path)
     doc.close()
+    gc.collect()
 
 # ----------------- Routes -----------------
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        if 'pdf_file' not in request.files:
+        file = request.files.get('pdf_file')
+        if not file:
+            flash("No file selected")
             return redirect(request.url)
-        file = request.files['pdf_file']
-        if file.filename == '':
-            return redirect(request.url)
-        if file:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_input:
-                file.save(temp_input.name)
-                temp_input_path = temp_input.name
 
-            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        filename = secure_filename(file.filename)
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in UPLOAD_EXTENSIONS:
+            flash("Invalid file type. Only PDFs allowed.")
+            return redirect(request.url)
+
+        # Save temp input file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_input:
+            temp_input.write(file.read())
+            temp_input_path = temp_input.name
+
+        # Output temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_output:
             temp_output_path = temp_output.name
-            temp_output.close()
 
+        try:
             add_geez_page_numbers(temp_input_path, temp_output_path)
-
             return send_file(temp_output_path, as_attachment=True, download_name="Geez_Final.pdf")
+        finally:
+            # Clean up input file
+            try:
+                os.unlink(temp_input_path)
+            except:
+                pass
 
     return render_template('index.html')
 
 # ----------------- Run -----------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, host='0.0.0.0', port=8080)
