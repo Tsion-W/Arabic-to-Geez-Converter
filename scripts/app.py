@@ -118,5 +118,14 @@ def index():
     return render_template('index.html')
 
 # ----------------- Run -----------------
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+if __name__ == "__main__":
+    # Get the port from environment variable if Codespaces assigns one, else default to 5000
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Run Flask app
+    app.run(
+        host="0.0.0.0",  # Make it accessible from Codespaces URL
+        port=port,
+        debug=True
+    )
